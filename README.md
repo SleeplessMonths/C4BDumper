@@ -31,9 +31,7 @@ mvn clean install
 
 3. Run the application:
 
-```bash
-java -jar target/C4BDumper.jar
-```
+Configure db_url, db_user and db_password in Main.java and compile & run it.
 
 ## Usage
 
