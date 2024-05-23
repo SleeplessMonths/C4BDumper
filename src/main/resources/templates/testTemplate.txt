@@ -1,0 +1,162 @@
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+
+import java.util.Locale;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Timeout.ThreadMode.SEPARATE_THREAD;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.security.Permission;
+
+import org.opentest4j.TestAbortedException;
+
+import static java.lang.Math.abs;
+
+@ExtendWith(NoExitExtension.class)
+@ExtendWith(ExceptionSkippingTestExecutionListener.class)
+public class <testClassName> {
+    private static final Lock lock = new ReentrantLock();
+    private <className> program;
+    private String actualOutput;
+    private ByteArrayOutputStream stdOut;
+
+    @BeforeAll
+    public static void setUpClass() {
+        Locale.setDefault(Locale.ROOT);
+    }
+
+    @AfterAll
+    public static void tearDownClass() {
+    }
+
+    @BeforeEach
+    public void setUp() {
+        stdOut = new ByteArrayOutputStream();
+        lock.lock();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        stdOut = null;
+        lock.unlock();
+    }
+
+    @ParameterizedTest
+    @Timeout(value = 5, unit = TimeUnit.SECONDS, threadMode = SEPARATE_THREAD)
+    @CsvSource({ <inputOutput> })
+    public void test(String input, String expectedOutput) throws Throwable {
+        try {
+            System.setIn(new ByteArrayInputStream(input.getBytes()));
+            System.setOut(new PrintStream(stdOut));
+
+            program = new <className>();
+
+            program.main(new String[0]);
+
+            actualOutput = stdOut.toString().trim();
+            TestUtils.assertEquals(expectedOutput, actualOutput);
+        } finally {
+            System.setIn(System.in);
+            System.setOut(System.out);
+        }
+    }
+}
+
+class NoExitSecurityManager extends SecurityManager {
+    @Override
+    public void checkPermission(Permission perm) {
+        // Allow other permissions
+    }
+
+    @Override
+    public void checkPermission(Permission perm, Object context) {
+        // Allow other permissions
+    }
+
+    @Override
+    public void checkExit(int status) {
+        super.checkExit(status);
+        throw new SecurityException("System.exit attempted and blocked.");
+    }
+}
+
+class NoExitExtension implements BeforeAllCallback, AfterAllCallback {
+
+    private SecurityManager originalSecurityManager;
+
+    @Override
+    public void beforeAll(ExtensionContext context) throws Exception {
+        originalSecurityManager = System.getSecurityManager();
+        System.setSecurityManager(new NoExitSecurityManager());
+    }
+
+    @Override
+    public void afterAll(ExtensionContext context) throws Exception {
+        System.setSecurityManager(originalSecurityManager);
+    }
+}
+
+class TestUtils {
+    public static void assertEquals(String expected, String actual) {
+        String[] expectedArray = expected.split("\\s+");
+        String[] actualArray = actual.split("\\s+");
+
+        assertTrue(expectedArray.length == actualArray.length,
+                () -> "Expected array length: " + expectedArray.length + " but was: " + actualArray.length);
+
+        for (int i = 0; i < expectedArray.length; i++) {
+            final int index = i;
+            if (isNumeric(expectedArray[i]) && isNumeric(actualArray[i])) {
+                double expectedNum = Double.parseDouble(expectedArray[i]);
+                double actualNum = Double.parseDouble(actualArray[i]);
+                // Tolerance can be adjusted
+                double tolerance = 0.1; // 1 decimal place tolerance
+                assertTrue(abs(expectedNum - actualNum) < tolerance,
+                        () -> "At index " + index + ": Expected number: " + expectedArray[index] + " but was: " + actualArray[index]);
+            } else {
+                assertTrue(expectedArray[i].equals(actualArray[i]),
+                        () -> "At index " + index + ": Expected: " + expectedArray[index] + " but was: " + actualArray[index]);
+            }
+        }
+    }
+
+    private static boolean isNumeric(String str) {
+        try {
+            Double.parseDouble(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+}
+
+class ExceptionSkippingTestExecutionListener implements TestExecutionExceptionHandler, BeforeEachCallback {
+
+    private boolean exceptionOccurred = false;
+
+    @Override
+    public void handleTestExecutionException(ExtensionContext context, Throwable throwable) throws Throwable {
+        if (!(throwable instanceof AssertionError)) {
+            exceptionOccurred = true;
+        }
+        throw throwable; // Throw the exception to mark the test as error
+    }
+
+    @Override
+    public void beforeEach(ExtensionContext context) {
+        if (exceptionOccurred) {
+            throw new TestAbortedException("Skipping remaining tests because an exception occurred.");
+        }
+    }
+}
